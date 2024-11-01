@@ -1,5 +1,5 @@
 # pagerankcfb
-Using PageRank to rank college football teams objectively
+Using PageRank in R to rank college football teams objectively
 
 - One of my first independent projects back in January 2023
 - Wanted to find unique objective ranking method for College Football Rankings to replace sujective AP rankings
