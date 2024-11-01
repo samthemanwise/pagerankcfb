@@ -1,0 +1,160 @@
+---
+title: "Ranking College Football Teams"
+author: "Samuel Wise"
+date: "2023-02-11"
+output: html_document
+---
+
+The sports analytics problem that I wanted to solve was to find a better way to rank college football teams. Every week during the season when the AP poll drops, I always think that there has to be some better, more mathematical way to rank these teams. I know it has been attempted before with the BCS rankings, which were heavily disliked before they stopped using them. This is my attempt with the use of the old Google Search algorithm, PageRank.
+
+# PageRank
+
+PageRank(PR) was the algorithm Google used to use to rank the sites in their search engine results. The PR score was based on the amount of links that lead to the website, and the PR value of the websites that contained the links. The more PR a link had, the more important and authoritative the site was. The algorithm used to determine the scores is defined here.
+
+$\text{PR}_p = \frac{1-d}{n} + d\sum_{i} \frac{\text{PR}_i}{\text{NumLinks}_i}$
+
+To determine the PR of page *p*, you would look at every site *i* that has a link to *p*, and take the summation of the PR score divided by the number of outgoing links it contains. Multiply that summation by the damping factor *d*, which basically is the percentage of time that a user follows the link on the page rather than choosing another random page. Finally, add the percentage a user clicks on a random page, 1-*d*, divided by *n*, the total number of pages, so that no site can have a PR of zero.
+
+# PageRank applied to College Football Rankings
+
+I applied this algorithm to college football in an attempt to rank these teams at the end of the season by their PR scores. I chose to use the 2019 season because LSU was dominant that year and I think far and away the best team, so I wanted to use them as a standard to compare the PR rankings to. First, I created a network where the nodes were each D-1 football team acting as the websites, and the edges were each game of the season acting as the links. The losing team would have their link leading to the winning team.
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(igraph)
+library(cfbfastR)
+```
+
+```{r, echo=FALSE}
+# API key for cfbfastR access
+Sys.setenv(CFBD_API_KEY = "2FWP5DlOlflwSogFGVVkGIU3qi3dySMa0njW4iG1fm65v9LWjKxbCWkD0uGWT0SO")
+
+# outcomes of each FBS game with winner and loser
+outcomes <- cfbd_game_info(2019) %>%
+  filter(home_division == "fbs" & away_division == "fbs") %>%
+  drop_na(home_points, away_points) %>%
+  summarize(loser = if_else(home_points < away_points, home_team, away_team), 
+            winner = if_else(home_points > away_points, home_team, away_team))
+
+# node list
+losers <- outcomes %>%
+  distinct(loser) %>%
+  rename(label = loser)
+
+winners <- outcomes %>%
+  distinct(winner) %>%
+  rename(label = winner)
+
+nodes <- full_join(losers, winners, by = "label") %>%
+  rename(team = label)
+
+# edge list
+edges <- outcomes %>% 
+  rename(from = loser) %>% 
+  rename(to = winner)
+
+# igraph
+games_igraph <- graph_from_data_frame(d = edges, vertices = nodes,
+                                      directed = TRUE)
+
+plot(games_igraph,
+     vertex.size = 10,
+     vertex.label.cex = 0.3,
+     edge.arrow.size = 0.2)
+```
+
+I applied the PR algorithm to this newly created network of the 2019 season, and listed the top 25 teams with the highest PR scores. I took the PR rankings and compared them to the final AP rankings of the same season.
+
+```{r, echo=FALSE, message=FALSE}
+# PageRank and rankings
+df <- page_rank(games_igraph)
+cfb_pr <- as_tibble(df[["vector"]])
+cfb_pr <- cfb_pr %>% arrange(desc(value)) %>% head(25)
+cfb_names <- tibble(school = c("Ohio State", "LSU", "Kansas State", "Oklahoma",
+                               "Georgia", "Temple", "Memphis", "Wisconsin",
+                               "BYU", "Oregon", "Notre Dame", "Michigan",
+                               "Baylor", "Auburn", "Penn State", "Cincinnati",
+                               "Georgia Southern", "Minnesota", "Utah",
+                               "Texas", "South Carolina", "USC", "Iowa",
+                               "Clemson", "Florida"))
+pr_rankings_2019 <- cfb_names %>% 
+  rowid_to_column("pr_rank")
+
+# AP rankings
+ap_rankings_2019 <- cfbd_rankings(year = 2019, week = 14) %>%
+  filter(poll == "AP Top 25") %>%
+  select(school, rank) %>%
+  rename(ap_rank = rank)
+
+# Joint rankings
+joint_rankings_2019 <- full_join(ap_rankings_2019, pr_rankings_2019, by="school")
+print.data.frame(joint_rankings_2019)
+```
+
+# Discussion of Rankings
+
+The PR rankings put LSU as the second highest instead of the first, but I still think it is a good sign that the PR rankings are working. Looking over the PR rankings it has 19 of the same teams that the AP poll has, most in different positions. The observation that stands out most to me, however, is Kansas State, who were unranked at the end of season, but are ranked third on the PR rankings. I took a look at their season schedule to see if I could figure out the reasoning behind their very high ranking. In 2019, they had an average record of 8-5, with four losses to unranked teams. However, in week 7, they had a massive upset win against Oklahoma, who were ranked 5th at the time. I wanted to see if there was any correlation to big upsets and PR score, and after some research on historical upsets, I looked into the 2007 season, where unranked Colorado beat third ranked Oklahoma. Performing the same procedure I used for the 2019 season, I obtained the 2007 PR rankings.
+
+```{r, echo=FALSE}
+# outcomes of each FBS game with winner and loser
+outcomes_2007 <- cfbd_game_info(2007) %>%
+  filter(home_division == "fbs" & away_division == "fbs") %>%
+  drop_na(home_points, away_points) %>%
+  summarize(loser = if_else(home_points < away_points, home_team, away_team), 
+            winner = if_else(home_points > away_points, home_team, away_team))
+
+# node list
+losers_2007 <- outcomes_2007 %>%
+  distinct(loser) %>%
+  rename(label = loser)
+
+winners_2007 <- outcomes_2007 %>%
+  distinct(winner) %>%
+  rename(label = winner)
+
+nodes_2007 <- full_join(losers_2007, winners_2007, by = "label") %>%
+  rename(team = label)
+
+# edge list
+edges_2007 <- outcomes_2007 %>% 
+  rename(from = loser) %>% 
+  rename(to = winner)
+
+# igraph
+games_igraph_2007 <- graph_from_data_frame(d = edges_2007, 
+                                      vertices = nodes_2007,
+                                      directed = TRUE)
+
+# PageRank and rankings
+df_2007 <- page_rank(games_igraph_2007)
+cfb_pr_2007 <- as_tibble(df_2007[["vector"]])
+cfb_pr_2007 <- cfb_pr_2007 %>% arrange(desc(value)) %>% head(25)
+cfb_names_2007 <- tibble(school = c("Oklahoma", "LSU", "Missouri", "Oregon",
+                                   "Colorado", "Tennessee", "Illinois", "Kentucky",
+                                   "USC", "Virginia Tech", "Texas Tech",
+                                   "Boston College", "South Florida", "Arkansas",
+                                   "West Virginia", "UCLA", "Georgia",
+                                   "Arizona State", "Cincinnati", "Florida", 
+                                   "Oregon State", "South Carolina", 
+                                   "Pittsburgh", "Florida State","Ohio State"))
+
+pr_rankings_2007 <- cfb_names_2007 %>% 
+  rowid_to_column("pr_rank")
+
+# AP rankings
+ap_rankings_2007 <- cfbd_rankings(year = 2007, week = 14) %>%
+  filter(poll == "AP Top 25") %>%
+  select(school, rank) %>%
+  rename(ap_rank = rank)
+
+# Joint rankings
+joint_rankings_2007 <- full_join(ap_rankings_2007, pr_rankings_2007, by="school")
+print.data.frame(joint_rankings_2007)
+
+```
+
+In the 2007 season, Colorado had a below average record of 6-7, with five of those losses coming from unranked teams. With this information, Colorado ranking fifth on the PR rankings is even more surprising than Kansas State's 2019 ranking. The wins over Oklahoma in both cases seem to be the only thing allowing these teams to be getting PR scores as high as they did.
+
+# Conclusion
+
+Using PageRank as an attempt to find a new way to rank college football teams, I found that it is not perfect, as it seems to overvalue big upset wins. I'm going to continue to play around with this idea, with either changing the damping factor or simply finding a new algorithm to use other than PageRank. For the sake of trying to answer a sports analytics problem, however, it does the job.
